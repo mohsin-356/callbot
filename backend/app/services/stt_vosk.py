@@ -30,13 +30,21 @@ class VoskSTT:
             logger.info(f"Loading Vosk model from {self.model_path}")
             self._model = Model(str(self.model_path))
 
+    def get_model(self):
+        self.load()
+        assert self._model is not None
+        return self._model
+
     def transcribe_wav(self, wav_path: str | Path) -> str:
         self.load()
         assert self._model is not None
 
         with wave.open(str(wav_path), "rb") as wf:
-            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() not in [8000, 16000, 32000, 44100, 48000]:
-                raise ValueError("WAV must be mono PCM 16-bit. Consider resampling before transcription.")
+            # Require mono and 16-bit PCM; allow any sample rate
+            if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+                raise ValueError(
+                    "WAV must be mono 16-bit PCM. Tip: install FFmpeg and we will auto-convert (winget install FFmpeg.FFmpeg)."
+                )
 
             rec = KaldiRecognizer(self._model, wf.getframerate())  # type: ignore[arg-type]
             rec.SetWords(True)
