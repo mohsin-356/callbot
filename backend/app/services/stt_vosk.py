@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -9,14 +10,15 @@ try:
     from vosk import Model, KaldiRecognizer
     import json
     import wave
-except Exception:  # Library not ready at image build time
+except Exception:  # Library may not be available in all environments
     Model = None  # type: ignore
     KaldiRecognizer = None  # type: ignore
 
 
 class VoskSTT:
-    def __init__(self, model_path: str | Path = "/models/vosk/en-us") -> None:
-        self.model_path = Path(model_path)
+    def __init__(self, model_path: str | Path | None = None) -> None:
+        # Allow override via env var for easier local (non-Docker) setup
+        self.model_path = Path(model_path or os.getenv("VOSK_MODEL_DIR", "/models/vosk/en-us"))
         self._model: Optional[Model] = None
 
     def load(self) -> None:
