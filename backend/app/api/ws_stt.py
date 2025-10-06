@@ -35,6 +35,9 @@ async def ws_stt(websocket: WebSocket) -> None:
 
         rec = KaldiRecognizer(model, 16000)
         rec.SetWords(True)
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            logger.warning("ffmpeg not found on PATH; only raw PCM s16le will work. Install FFmpeg for broader format support.")
 
         while True:
             try:
@@ -43,81 +46,101 @@ async def ws_stt(websocket: WebSocket) -> None:
                 logger.info("WebSocket STT client disconnected")
                 break
 
+            # Starlette messages include a type
+            if message.get("type") == "websocket.disconnect":
+                logger.info("WebSocket disconnect received")
+                break
+
             # Client can send control text messages
-            if "text" in message and message["text"] is not None:
-                text_msg = message["text"].strip().lower()
+            if message.get("text") is not None:
+                text_msg = str(message["text"]).strip().lower()
                 if text_msg in {"close", "stop", "final"}:
-                    final = json.loads(rec.FinalResult())
-                    await websocket.send_json({"type": "final", "result": final})
-                    await websocket.close()
+                    try:
+                        final = json.loads(rec.FinalResult())
+                        await websocket.send_json({"type": "final", "result": final})
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            await websocket.close()
+                        except Exception:
+                            pass
                     break
                 # Ignore other control messages
                 continue
 
-            if "bytes" not in message or message["bytes"] is None:
+            if message.get("bytes") is None:
                 # No audio payload in this frame
                 continue
 
             chunk: bytes = message["bytes"]
 
-            pcm: bytes | None = None
-            ffmpeg_path = shutil.which("ffmpeg")
-            if ffmpeg_path:
-                # Normalize this chunk to 16k mono s16le using ffmpeg
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as src:
-                    src_path = Path(src.name)
-                    src.write(chunk)
+            # If ffmpeg is not present, we cannot decode compressed formats reliably
+            if not ffmpeg_path:
+                # Optionally, attempt to treat as raw PCM (often won't work from MediaRecorder)
+                # Send a one-time hint
                 try:
-                    cmd = [
-                        ffmpeg_path,
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-y",
-                        "-i",
-                        str(src_path),
-                        "-ac",
-                        "1",
-                        "-ar",
-                        "16000",
-                        "-f",
-                        "s16le",
-                        "-acodec",
-                        "pcm_s16le",
-                        "pipe:1",
-                    ]
-                    proc = subprocess.run(
-                        cmd,
-                        check=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    pcm = proc.stdout
-                except subprocess.CalledProcessError as ce:
-                    logger.warning(f"ffmpeg failed on chunk, using raw bytes: {ce.stderr.decode(errors='ignore')}")
-                    pcm = chunk
-                finally:
-                    try:
-                        src_path.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-            else:
-                # ffmpeg not available; assume raw PCM
-                pcm = chunk
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "FFmpeg not found on PATH. Install it to enable decoding of browser audio chunks (winget install FFmpeg.FFmpeg)."
+                    })
+                except Exception:
+                    pass
+                continue
+
+            # Normalize this chunk to 16k mono s16le using ffmpeg
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as src:
+                src_path = Path(src.name)
+                src.write(chunk)
+            try:
+                cmd = [
+                    ffmpeg_path,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(src_path),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-f",
+                    "s16le",
+                    "-acodec",
+                    "pcm_s16le",
+                    "pipe:1",
+                ]
+                proc = subprocess.run(
+                    cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                pcm = proc.stdout
+            except subprocess.CalledProcessError as ce:
+                logger.warning(f"ffmpeg failed on chunk, skipping: {ce.stderr.decode(errors='ignore')}")
+                continue
+            finally:
+                try:
+                    src_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
             if not pcm:
                 continue
 
-            if rec.AcceptWaveform(pcm):
-                result = json.loads(rec.Result())
-                await websocket.send_json({"type": "result", "final": True, "result": result})
-            else:
-                partial = json.loads(rec.PartialResult())
-                await websocket.send_json({"type": "result", "final": False, "result": partial})
+            # Feed to recognizer
+            try:
+                if rec.AcceptWaveform(pcm):
+                    result = json.loads(rec.Result())
+                    await websocket.send_json({"type": "result", "final": True, "result": result})
+                else:
+                    partial = json.loads(rec.PartialResult())
+                    await websocket.send_json({"type": "result", "final": False, "result": partial})
+            except Exception as e:
+                logger.warning(f"Recognizer error: {e}")
 
-        # Send final result on close
-        final = json.loads(rec.FinalResult())
-        await websocket.send_json({"type": "final", "result": final})
     except Exception:
         logger.exception("WebSocket STT error")
         try:
