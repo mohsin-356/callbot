@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from ..services.stt_vosk import VoskSTT
+from ..core.config import settings
 
 router = APIRouter()
 
@@ -35,9 +36,9 @@ async def ws_stt(websocket: WebSocket) -> None:
 
         rec = KaldiRecognizer(model, 16000)
         rec.SetWords(True)
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = settings.FFMPEG_BIN or os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")
         if not ffmpeg_path:
-            logger.warning("ffmpeg not found on PATH; only raw PCM s16le will work. Install FFmpeg for broader format support.")
+            logger.warning("ffmpeg not found (FFMPEG_BIN/Path); only raw PCM s16le will work. Install FFmpeg for broader format support.")
 
         while True:
             try:
@@ -82,7 +83,7 @@ async def ws_stt(websocket: WebSocket) -> None:
                 try:
                     await websocket.send_json({
                         "type": "error",
-                        "message": "FFmpeg not found on PATH. Install it to enable decoding of browser audio chunks (winget install FFmpeg.FFmpeg)."
+                        "message": "FFmpeg not found. Install it (winget install FFmpeg.FFmpeg) or set FFMPEG_BIN to ffmpeg.exe to decode browser audio chunks."
                     })
                 except Exception:
                     pass

@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
 from ..services.stt_vosk import VoskSTT
+from ..core.config import settings
 
 router = APIRouter()
 
@@ -25,7 +26,12 @@ async def stt_transcribe(file: UploadFile = File(...)) -> dict:
 
         # 2) If ffmpeg is available, normalize to mono 16k s16 WAV
         dst_path: Path | None = None
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = settings.FFMPEG_BIN or os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")
+        # If FFMPEG_BIN is a directory, append the executable name
+        if ffmpeg_path and os.path.isdir(ffmpeg_path):
+            candidate = os.path.join(ffmpeg_path, "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+            if os.path.isfile(candidate):
+                ffmpeg_path = candidate
         if ffmpeg_path:
             fd, out_name = tempfile.mkstemp(suffix=".wav")
             os.close(fd)
@@ -52,7 +58,7 @@ async def stt_transcribe(file: UploadFile = File(...)) -> dict:
                 # Fallback to original
                 input_path = src_path
         else:
-            logger.info("ffmpeg not found on PATH; attempting to process original file as WAV")
+            logger.info("ffmpeg not found (FFMPEG_BIN/Path); attempting to process original file as WAV")
             input_path = src_path
 
         # 3) Transcribe using Vosk
@@ -62,8 +68,8 @@ async def stt_transcribe(file: UploadFile = File(...)) -> dict:
     except ValueError as e:
         # Invalid WAV after best-effort. If ffmpeg isn't installed, guide user.
         msg = str(e)
-        if not shutil.which("ffmpeg"):
-            msg += " | Tip: install FFmpeg to auto-convert any audio (winget install FFmpeg.FFmpeg)"
+        if not (os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")):
+            msg += " | Tip: install FFmpeg (winget install FFmpeg.FFmpeg) or set FFMPEG_BIN to ffmpeg.exe"
         logger.exception("STT validation error (invalid audio/WAV format)")
         raise HTTPException(status_code=400, detail=msg)
     except Exception as e:

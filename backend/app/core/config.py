@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # NLP (Rasa)
     RASA_URL: str = "http://localhost:5005"
 
+    # Media tools
+    FFMPEG_BIN: str | None = None  # e.g., C:\ffmpeg\...\bin\ffmpeg.exe
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
