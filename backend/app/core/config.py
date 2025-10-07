@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     FFMPEG_BIN: str | None = None  # e.g., C:\ffmpeg\...\bin\ffmpeg.exe
     VOSK_MODEL_DIR: str | None = None  # e.g., C:\path\to\vosk\model
 
+    # Audio / VAD
+    VAD_ENABLED: bool = True  # enable server-side gating
+    VAD_AGGRESSIVENESS: int = 2  # 0..3 (3 = most aggressive)
+    VAD_RMS_THRESHOLD: float = 0.015  # fallback RMS threshold if webrtcvad unavailable
+    VAD_HANGOVER_FRAMES: int = 8  # continue passing N frames after speech ends
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
