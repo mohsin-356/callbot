@@ -17,14 +17,37 @@ except Exception:  # Library may not be available in all environments
 
 class VoskSTT:
     def __init__(self, model_path: str | Path | None = None) -> None:
-        # Allow override via env var for easier local (non-Docker) setup
-        self.model_path = Path(model_path or os.getenv("VOSK_MODEL_DIR", "/models/vosk/en-us"))
+        # Resolve model path priority:
+        # 1) explicit arg
+        # 2) VOSK_MODEL_DIR env var
+        # 3) bundled model under backend/voskmodels/<first subdir>
+        resolved: Path | None = None
+        if model_path:
+            resolved = Path(model_path)
+        else:
+            env_dir = os.getenv("VOSK_MODEL_DIR")
+            if env_dir:
+                resolved = Path(env_dir)
+            else:
+                # backend/app/services -> parents[2] == backend/
+                backend_dir = Path(__file__).resolve().parents[2]
+                bundle_root = backend_dir / "voskmodels"
+                if bundle_root.exists() and bundle_root.is_dir():
+                    # pick the first subdir as model folder
+                    subdirs = [p for p in bundle_root.iterdir() if p.is_dir()]
+                    if subdirs:
+                        resolved = subdirs[0]
+                        logger.info(f"Using bundled Vosk model at {resolved}")
+        # Fallback to a sensible default if still None (will error later if not present)
+        self.model_path = resolved or Path("voskmodels")
         self._model: Optional[Model] = None
 
     def load(self) -> None:
         if self._model is None:
             if Model is None:
-                raise RuntimeError("vosk is not available in the environment")
+                raise RuntimeError(
+                    "Vosk Python package is not installed. Install with: python -m pip install vosk==0.3.44"
+                )
             if not self.model_path.exists():
                 raise FileNotFoundError(f"Vosk model not found at {self.model_path}")
             logger.info(f"Loading Vosk model from {self.model_path}")

@@ -46,6 +46,9 @@ function App() {
 
       ws.onopen = () => {
         const mimeType = getSupportedMimeType()
+        try {
+          ws.send(JSON.stringify({ type: 'init', mimeType }))
+        } catch {}
         const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
         rec.ondataavailable = async (ev) => {
           if (!ev.data || ev.data.size === 0) return
@@ -71,6 +74,8 @@ function App() {
             } else {
               setPartial(msg?.result?.partial || '')
             }
+          } else if (msg.type === 'error') {
+            setError(msg?.message || 'Server error while decoding audio')
           } else if (msg.type === 'final') {
             const text = msg?.result?.text || ''
             setFinalText(prev => (prev ? prev + ' ' : '') + text)

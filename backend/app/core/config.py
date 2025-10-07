@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # Media tools
     FFMPEG_BIN: str | None = None  # e.g., C:\ffmpeg\...\bin\ffmpeg.exe
+    VOSK_MODEL_DIR: str | None = None  # e.g., C:\path\to\vosk\model
 
     model_config = SettingsConfigDict(
         env_file=".env",

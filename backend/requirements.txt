@@ -10,4 +10,5 @@ TTS==0.22.0
 python-socketio==5.11.4
 aiofiles==24.1.0
 loguru==0.7.2
+cffi==1.17.1
 python-multipart==0.0.9
